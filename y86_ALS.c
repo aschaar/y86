@@ -58,12 +58,13 @@ int parse(FILE * f)
     { /* c0af   c 0af  c0 af  c0a f */
         while ((c = fgetc(f)) != EOF )
         {
-            char t = fgetc(f);
+            //char t = fgetc(f);
             //c = toHex(c);
             //t = toHex(t);
-            p[i] = c<<4 | t;
+            //p[i] = c << 4 |t;
+            p[i] = c;
             i++; programLength++;
-            printf("%x ", p[i] & 0xff);
+            printf("%d ", p[i] & 0xff);
         }
     }
     printf("\n");
@@ -751,6 +752,16 @@ void cmove(char reg)
 void cmovne(char reg)
 {
     /* TODO 3: Implement the cmovne instruction */
+    int * src = r1(reg);
+    int * dst = r2(reg);
+
+    if(getZF() == 0){
+        *dst = *src;
+        printf("cmovne %x, %x (moved)", *src, *dst);
+    } else {
+        printf("cmovne %x, %x (not moved)", *src, *dst);
+    }
+    pc+=2;
 }
 
 
@@ -758,6 +769,16 @@ void cmovne(char reg)
 void cmovge(char reg)
 {
     /* TODO 4: Implement the cmovge instruction */
+    int * src = r1(reg);
+    int * dst = r2(reg);
+
+    if(getSF() == getOF()){
+        *dst = *src;
+        printf("cmovge %x, %x (moved)", *src, *dst);
+    } else { 
+        printf("cmovge %x, %x (not moved)", *src, *dst);
+    }
+    pc+=2;
 }
 
 
@@ -765,6 +786,16 @@ void cmovge(char reg)
 void cmovg(char reg)
 {
     /* TODO 5: Implement the cmovg instruction */
+    int * src = r1(reg);
+    int * dst = r2(reg);
+
+    if((getSF() == getOF()) && getZF() == 0){
+        *dst = *src;
+        printf("cmovg %x, %x (moved)", *src, *dst);
+    } else { 
+        printf("cmovg %x, %x (not moved)", *src, *dst);
+    }
+    pc+=2;
 }
 
 
@@ -798,15 +829,48 @@ void rmmovl(char reg, int offset)
 void mrmovl(char reg, int offset)
 {
     /* TODO 6: Implement the mrmovl instruction */
+    
+    int * rA = r1(reg);
+    int * rB = r2(reg);
+    *rA = p[*rB + offset];
+    printf("mrmovl D(rB), %x", *rA);
+    pc+=6;
 }
 
 /** Sets flags based on the last result */
 void setFlags(int a, int b, int result, int isAdd)
 {
     /* TODO 7: Implement the setFlags function */
-    //set ZF - zero flag
-    //setOF - overflow flag 
-    //setSF - sign flag
+
+    //isAdd to indicate addition or subtraction
+    if(isAdd == 1){
+        if((a > 0) && (b > 0) && (result < 0)){
+            setOF();
+        } else if ((a < 0) && (b < 0) && (result > 0)){
+            setOF();
+        } else if((a > 0) && (b < 0) && (result < 0)){
+            setOF();
+        } else if((a < 0) && (b > 0) && (result > 0)) {
+            setOF();
+        } else {
+            clearOF();
+        }
+        //overflow (OF) occurs when add or subtract only
+        //add two positives and get a negative
+        //add two negatives and get a positive 
+        //positive - negative = negative
+        //negative - positive = positive
+    } else if(result == 0){
+        setZF();
+    } else if(result < 0){
+        setSF();
+    } else {
+        clearZF();
+        clearSF();
+    }
+    //ZF: is result = 0?
+
+    //SF: is result < 0
 }
 
 
@@ -815,10 +879,9 @@ void addl(char reg)
 {
     int * src = r1(reg);
     int * dst = r2(reg);
-    int tmp = *dst;
     *dst = *dst + *src;
-    printf("addl rA, rB: (%x)", *dst);
-    setFlags(tmp, *src, *dst);
+    setFlags(*src,*dst,(*src+*dst), 1);
+    printf("addl rA, rB: (%x)", *dst);    
     pc+=2;
 }
 
@@ -827,6 +890,13 @@ void addl(char reg)
 void subl(char reg)
 {
     /* TODO 8: Implement the subl instruction */
+
+    int * src = r1(reg);
+    int * dst = r2(reg);
+    *dst = *dst - *src;
+    setFlags(*src, *dst, (*src-*dst), 1);
+    printf("subl rA, rB: (%x)", *dst);
+    pc+=2;
 }
 
 
@@ -834,6 +904,13 @@ void subl(char reg)
 void andl(char reg)
 {
     /* TODO 9: Implement the andl instruction */
+
+    int * src = r1(reg);
+    int * dst = r2(reg);
+    *dst = *src & *dst;
+    setFlags(*src, *dst, (*src & *dst), 0);
+    printf("andl rA, rB: (%x)", *dst);
+    pc+=2;
 }
 
 
@@ -841,6 +918,13 @@ void andl(char reg)
 void xorl(char reg)
 {
     /* TODO 10: Implement the xorl instruction */
+
+    int * src = r1(reg);
+    int * dst = r2(reg);
+    *dst = *src ^ *dst;
+    setFlags(*src, *dst, (*src^*dst), 0);
+    printf("xorl rA, rB: (%x)", *dst);
+    pc+=2;
 }
 
 
@@ -850,7 +934,7 @@ void jmp(int dest)
     printf("jmp %x", dest);
     pc = dest;
     printf(" (pc=%x)", dest);
-    pc+=5;
+    //pc+=5; possible bug?
 }
 
 
@@ -859,6 +943,15 @@ void jmp(int dest)
 void jle(int dest)
 {
     /* TODO 11: Implement the jle instruction */
+    
+    printf("jle %x", dest);
+    if(getZF() || getSF() != getOF()){
+        pc = dest;
+        printf(" (pc=%x)", dest);
+    } else {
+        printf(" (not taken)");
+        pc+=5;
+    }
 }
 
 
@@ -866,6 +959,15 @@ void jle(int dest)
 void jl(int dest)
 {
     /* TODO 12: Implement the jl instruction */
+    
+    printf("jl %x", dest);
+    if(getSF() != getOF()){
+        pc = dest;
+        printf(" (pc=%x)", dest);
+    } else {
+        printf(" (not taken)");
+        pc+=5;
+    }
 }
 
 
@@ -906,6 +1008,15 @@ void jne(int dest)
 void jge(int dest)
 {
     /* TODO 13: Implement the jge instruction */
+    
+    printf("jge %x", dest);
+    if(getSF() == getOF()){
+        pc = dest;
+        printf(" (pc=%x)", pc&0xff);
+    } else {
+        printf(" (not taken)");
+        pc+=5;
+    }
 }
 
 
@@ -914,6 +1025,15 @@ void jge(int dest)
 void jg(int dest)
 {
     /* TODO jg: Implement the jg instruction */
+    
+    printf("jf %x", dest);
+    if((getSF() == getOF()) && getZF() == 0){
+        pc = dest;
+        printf(" (pc=%x", pc&0xff);
+    } else {
+        printf(" (not taken)");
+        pc+=5;
+    }
 }
 
 
