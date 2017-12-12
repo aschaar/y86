@@ -20,17 +20,18 @@ int main(int argc, char ** argv)
     /* 
     TODO 1: read the file in as a binary file 
     */
-    f = fopen(input, "r"); 
+    f = fopen(input, "rb"); 
     printf("Opened file %s\n", input);
     parse(f);
     printf("Parsed %s\n", input);
     decode();
+    printMemory(0);
     return 0;
 }
 
 void setup()
 {
-        /* get the file from arc */
+    //allocating all of the registers and setting them to 0 for setup
     eax = malloc(sizeof(int*));
     ecx = malloc(sizeof(int*));
     edx = malloc(sizeof(int*));
@@ -49,43 +50,27 @@ int parse(FILE * f)
     char c;
     programLength = 0;
     int i = 0;
+
     if (f == 0)
     {
         perror("Cannot open input file\n");
         return 1;
     }
     else
-    { /* c0af   c 0af  c0 af  c0a f */
-        while ((c = fgetc(f)) != EOF )
-        {
-            //char t = fgetc(f);
-            //c = toHex(c);
-            //t = toHex(t);
-            //p[i] = c << 4 |t;
-            p[i] = c;
-            i++; programLength++;
-            printf("%d ", p[i] & 0xff);
-        }
+    {
+        //reading the file into memory
+        programLength = fread(p, 1, 2000, f);
+
+        //printing out the bytes that were read in
+        for (int i = 0; i < programLength; i++) {
+            printf("%x ", p[i] & 0xff); 
+        }  
     }
     printf("\n");
     fclose(f);
     return 0;
+
 }
-
-
-char toHex(char x)
-{
-    if (x > '/' && x < ':') /* 0-9 */
-        x = (x - 48);
-    else if (x > '`' && x < 'g') /* a-f */
-        x = (x-87);
-    return x;
-}
-
-
-
-
-
 
 /* Decodes the string of byte-sized characters and executes them **********
 *************************************************************************/
@@ -451,7 +436,7 @@ void setZF()
 
 void clearZF()
 {
-    codes = codes & 64; /* clears 10111111 flag */
+    codes = codes & 0xBF; /* clears 10111111 flag BF */
     // if set, clear
     // if clear, clear
 }
@@ -480,7 +465,7 @@ void setSF()
 
 void clearSF()
 {
-    codes = codes & 32;
+    codes = codes & 0xDF;
 }
 
 int getSF()
@@ -500,7 +485,7 @@ void setOF()
 
 void clearOF()
 {
-    codes = codes & 16;
+    codes = codes & 0xEF;
 }
 
 int getOF()
@@ -639,15 +624,15 @@ int * r2(char a)
 *  Prints out the values of the registers */
 void printRegisters()
 {
-    printf("\nEAX:%x  " , *eax);
-    printf("ECX:%x  " , *eax);
-    printf("EDX:%x  ", *eax);
-    printf("EBX:%x  ", *eax);
-    printf("ESP:%x  ", *eax);
-    printf("EBP:%x  ", *eax);
-    printf("ESI:%x  ", *eax);
-    printf("EDI:%x  ", *eax);
-    printf("PC:%x \n", pc);
+    printf("\nEAX:%x  " , *eax & 0xff);
+    printf("ECX:%x  " , *ecx & 0xff);
+    printf("EDX:%x  ", *edx & 0xff);
+    printf("EBX:%x  ", *ebx & 0xff);
+    printf("ESP:%x  ", *esp & 0xff);
+    printf("EBP:%x  ", *ebp & 0xff);
+    printf("ESI:%x  ", *esi & 0xff);
+    printf("EDI:%x  ", *edi & 0xff);
+    printf("PC:%x \n", pc & 0xff);
 }
 
 /* Generates an error then exits the program 
@@ -657,13 +642,6 @@ void error(char * words, int pc)
     printf(words);
     exit(1);
 }
-
-
-
-
-
-
-
 
 /* Assembly instructions */
 
@@ -677,6 +655,7 @@ void halt()
     printRegisters();
     setHLT();
     pc+=1;
+    //printMemory(pc);
     exit(0);
 }
 
@@ -789,7 +768,7 @@ void cmovg(char reg)
     int * src = r1(reg);
     int * dst = r2(reg);
 
-    if((getSF() == getOF()) && getZF() == 0){
+    if((getSF() == getOF()) && (getZF() == 0)){
         *dst = *src;
         printf("cmovg %x, %x (moved)", *src, *dst);
     } else { 
@@ -841,36 +820,28 @@ void mrmovl(char reg, int offset)
 void setFlags(int a, int b, int result, int isAdd)
 {
     /* TODO 7: Implement the setFlags function */
+    clearFlags();
 
     //isAdd to indicate addition or subtraction
-    if(isAdd == 1){
+    if(isAdd == 1){ //if it's addition
         if((a > 0) && (b > 0) && (result < 0)){
             setOF();
-        } else if ((a < 0) && (b < 0) && (result > 0)){
+        } else if ((a < 0) && (b < 0) && (result >= 0)) {
             setOF();
-        } else if((a > 0) && (b < 0) && (result < 0)){
-            setOF();
-        } else if((a < 0) && (b > 0) && (result > 0)) {
-            setOF();
-        } else {
-            clearOF();
         }
-        //overflow (OF) occurs when add or subtract only
-        //add two positives and get a negative
-        //add two negatives and get a positive 
-        //positive - negative = negative
-        //negative - positive = positive
-    } else if(result == 0){
+    } else if(isAdd == 2){ //if it's subtraction
+        if((a > 0) && (b < 0) && (result > 0)) { 
+            setOF();
+        } else if((a < 0) && (b >= 0) && (result < 0)) {
+            setOF();
+        }
+    } 
+
+    if(result == 0){
         setZF();
     } else if(result < 0){
         setSF();
-    } else {
-        clearZF();
-        clearSF();
     }
-    //ZF: is result = 0?
-
-    //SF: is result < 0
 }
 
 
@@ -879,9 +850,10 @@ void addl(char reg)
 {
     int * src = r1(reg);
     int * dst = r2(reg);
+    int tmp = *dst;
     *dst = *dst + *src;
-    setFlags(*src,*dst,(*src+*dst), 1);
-    printf("addl rA, rB: (%x)", *dst);    
+    printf("addl rA, rB: (%x)", *dst);  
+    setFlags(*src,tmp,*dst, 1);
     pc+=2;
 }
 
@@ -893,9 +865,10 @@ void subl(char reg)
 
     int * src = r1(reg);
     int * dst = r2(reg);
+    int tmp = *dst;
     *dst = *dst - *src;
-    setFlags(*src, *dst, (*src-*dst), 1);
     printf("subl rA, rB: (%x)", *dst);
+    setFlags(*src, tmp, *dst, 2);
     pc+=2;
 }
 
@@ -907,9 +880,11 @@ void andl(char reg)
 
     int * src = r1(reg);
     int * dst = r2(reg);
+    int tmp = *dst;
     *dst = *src & *dst;
-    setFlags(*src, *dst, (*src & *dst), 0);
     printf("andl rA, rB: (%x)", *dst);
+    setFlags(*src, tmp, *dst, 0);
+
     pc+=2;
 }
 
@@ -921,9 +896,10 @@ void xorl(char reg)
 
     int * src = r1(reg);
     int * dst = r2(reg);
+    int tmp = *dst;
     *dst = *src ^ *dst;
-    setFlags(*src, *dst, (*src^*dst), 0);
     printf("xorl rA, rB: (%x)", *dst);
+    setFlags(*src, tmp, *dst, 0);
     pc+=2;
 }
 
@@ -934,7 +910,6 @@ void jmp(int dest)
     printf("jmp %x", dest);
     pc = dest;
     printf(" (pc=%x)", dest);
-    //pc+=5; possible bug?
 }
 
 
@@ -942,10 +917,9 @@ void jmp(int dest)
 /**     jle Dest          71 Da Db Dc Dd  */
 void jle(int dest)
 {
-    /* TODO 11: Implement the jle instruction */
-    
+    /* TODO 11: Implement the jle instruction */ 
     printf("jle %x", dest);
-    if(getZF() || getSF() != getOF()){
+    if((getZF() == 1) || (getSF() != getOF())){
         pc = dest;
         printf(" (pc=%x)", dest);
     } else {
@@ -1027,7 +1001,7 @@ void jg(int dest)
     /* TODO jg: Implement the jg instruction */
     
     printf("jf %x", dest);
-    if((getSF() == getOF()) && getZF() == 0){
+    if((getSF() == getOF()) && (getZF() == 0)){
         pc = dest;
         printf(" (pc=%x", pc&0xff);
     } else {
@@ -1065,7 +1039,7 @@ void ret()
 void pushl(char reg)
 {
     int * rA = r1(reg);
-    *esp = *esp - 4;    /* make entry on the stack */
+    *esp = *esp - 0x4;    /* make entry on the stack */
     p[*esp] = *rA;      /* put rA into it */
     printf("pushl %x", *rA);
     pc+=2;
