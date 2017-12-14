@@ -1,6 +1,25 @@
+/* 
+    Project #4 
+    CEG 4350-01
+    Abigail Schaar
+
+    This is the source of code to simulate the y86 emulator. It uses the
+    basic structure that was provided with some tweaks regarding print 
+    statements and the clearing and setting of conditional flags.
+
+    First, the program reads in a user supplied binary file and puts the
+    read bytes into the program memory. Then, the program switches to 
+    decoding and executing the instructions that were in the original 
+    binary file. 
+
+    Once the program is finished, it will print out the registers, the
+    conditional flags and the memory of the program.
+*/
+
 #include"y86_ALS.h"
 #define FALSE 0
 #define TRUE 1
+#define MEMSIZE 2000
 
 char p[2000]; /* This is memory */
 int programLength;
@@ -10,22 +29,28 @@ int num_words;
 int *eax, *ecx, *edx, *ebx, *esi, *edi, *esp, *ebp, pc;
 char codes; /* status, condition codes[3]; control and status flags */
 
-
 /* Program start */
 int main(int argc, char ** argv)
 {   
     setup();
     char *input = argv[1];
     FILE * f;
+
     /* 
     TODO 1: read the file in as a binary file 
     */
     f = fopen(input, "rb"); 
     printf("Opened file %s\n", input);
+    //parsing the file
     parse(f);
     printf("Parsed %s\n", input);
+
+    //going through the codes to emulate the program
     decode();
+    
+    //print the memory
     printMemory(0);
+
     return 0;
 }
 
@@ -47,14 +72,13 @@ void setup()
 ************************************************************************/
 int parse(FILE * f)
 {
-    char c;
     programLength = 0;
     int i = 0;
 
     if (f == 0)
     {
         perror("Cannot open input file\n");
-        return 1;
+        exit(1);
     }
     else
     {
@@ -64,35 +88,32 @@ int parse(FILE * f)
         //printing out the bytes that were read in
         for (int i = 0; i < programLength; i++) {
             printf("%x ", p[i] & 0xff); 
-        }  
+        }
+
     }
+    
     printf("\n");
     fclose(f);
     return 0;
-
 }
 
 /* Decodes the string of byte-sized characters and executes them **********
 *************************************************************************/
 int decode()
 {
-    /*
-    take the first char
-        - determine how many operands
-        - call function with right operands
-    */
-
     /* 
     TODO 2: Implement this function so it reads from a binary file 
     rather than from ASCII characters that represent binary digits like 
     it does now 
     */
 
+    //setting the AOK status to then start the decoding
+    setAOK();
+
     for (pc=0; pc<programLength; )
     {
-        printf("\n0x%x:\t ", pc&0xff);
-        char a = p[pc] & 0xf0;
-        char b = p[pc] & 0x0f;
+        printf("\n0x%x:\t ", pc & 0xff);
+
         switch (p[pc] & 0xf0)
         {
             case 0x00:
@@ -104,7 +125,9 @@ int decode()
                     halt();
                 } else
                 {
+                    setINS();
                     error("Error interpreting halt at pc=%x", pc);
+
                 }
                 break;
             }
@@ -117,14 +140,22 @@ int decode()
                     nop();
                 } else
                 {
+                    setINS();
                     error("Error interpreting nop at pc=%x", pc);
                 }
                 break;
             }
             case 0x20:
             {
+                //checking if the program has exceeded the program memory
+                if((pc+1) > MEMSIZE){
+                    setADR();
+                    error("Error grabbing register for mov", pc);
+                }
+
                 printf("%x %x \t\t", p[pc]&0xff, p[pc+1]&0xff);
                 char reg = p[pc+1];
+
                 /* l=4, mov 
                     rrmovl rA, rb     20 rArB
                     cmovle rA, rb     21 rArB
@@ -133,7 +164,7 @@ int decode()
                     cmovne rA, rB     24 rArB
                     cmovge rA, rB     25 rArB
                     cmovg rA, rB      26 rArB
-                    */
+                */
                 if ((p[pc]&0x0f) == 0x0)
                 {
                     rrmovl(reg);
@@ -174,10 +205,17 @@ int decode()
                 /* irmovl V, rb      30 FrB V[4] */
                if ((p[pc] & 0x0f) == 0x0)
                {
-                printf("%x %x %x %x %x %x\t", p[pc]&0xff, p[pc+1]&0xff, 
-                    p[pc+2]&0xff, p[pc+3]&0xff, p[pc+4]&0xff, p[pc+5]&0xff);
-                int val = getVal(p[pc+2], p[pc+3], p[pc+4], p[pc+5]);
-                irmovl(val, p[pc+1]);
+                    if ((pc+5) > MEMSIZE){
+                        setADR();
+                        error("Error grabbing value for irmovl", pc);
+                    } else {
+                        printf("%x %x %x %x %x %x\t", p[pc]&0xff, p[pc+1]&0xff, 
+                            p[pc+2]&0xff, p[pc+3]&0xff, p[pc+4]&0xff, p[pc+5]&0xff);
+                        int val = getVal(p[pc+2], p[pc+3], p[pc+4], p[pc+5]);
+                        
+                        irmovl(val, p[pc+1]);
+                    }
+                
                } else
                {
                     setINS();
@@ -191,14 +229,19 @@ int decode()
                 /* rmmovl rA, D(rB)  40 rArB D[4] */
                 if ((p[pc]&0x0f) == 0x0)
                 {
-                    printf("%x %x %x %x %x %x\t", p[pc]&0xff, p[pc+1]&0xff, 
-                        p[pc+2]&0xff, p[pc+3]&0xff, p[pc+4]&0xff, p[pc+5]&0xff);                    
-                    int data = getVal(p[pc+2], p[pc+3], p[pc+4], p[pc+5]);
-                    rmmovl(p[pc+1], data);
+                    if ((pc+5) > MEMSIZE){
+                        setADR();
+                        error("Error grabbing data for rmmovl", pc);
+                    } else {
+                        printf("%x %x %x %x %x %x\t", p[pc]&0xff, p[pc+1]&0xff, 
+                            p[pc+2]&0xff, p[pc+3]&0xff, p[pc+4]&0xff, p[pc+5]&0xff);                    
+                        int data = getVal(p[pc+2], p[pc+3], p[pc+4], p[pc+5]);
+                        rmmovl(p[pc+1], data);
+                    }
                 } else
                 {
                     setINS();
-                    error("Error interpreting rrmovl at pc=%x", pc);
+                    error("Error interpreting rmmovl at pc=%x", pc);
                 }
                 break;
             }
@@ -208,10 +251,15 @@ int decode()
                 /*     mrmovl D(rB), rA     50 rArB D[4] */
                 if ((p[pc]&0x0f) == 0x0)
                 {
-                    printf("%x %x %x %x %x %x\t", p[pc]&0xff, p[pc+1]&0xff, 
-                        p[pc+2]&0xff, p[pc+3]&0xff, p[pc+4]&0xff, p[pc+5]&0xff);                    
-                    int data = getVal(p[pc+2], p[pc+3], p[pc+4], p[pc+5]);
-                    mrmovl(p[pc+1], data);
+                    if ((pc+5) > MEMSIZE){
+                        setADR();
+                        error("Error grabbing data for mrmovl", pc);
+                    } else {
+                        printf("%x %x %x %x %x %x\t", p[pc]&0xff, p[pc+1]&0xff, 
+                            p[pc+2]&0xff, p[pc+3]&0xff, p[pc+4]&0xff, p[pc+5]&0xff);                    
+                        int data = getVal(p[pc+2], p[pc+3], p[pc+4], p[pc+5]);
+                        mrmovl(p[pc+1], data);
+                    }
                 } else
                 {
                     setINS();
@@ -221,8 +269,14 @@ int decode()
             }
             case 0x60:
             {
+                if ((pc+1) > MEMSIZE){
+                    setADR();
+                    error("Error grabbing register for OPl", pc);
+                }
+                
                 printf("%x %x \t\t", p[pc]&0xff, p[pc+1]&0xff);
                 char reg = p[pc+1];
+
                 /* l=4, op */
                 /* 
                 addl rA, rB       60 rArB
@@ -251,11 +305,16 @@ int decode()
             }
             case 0x70:
             {
-                /* l=8, jmps */
+                if ((pc+4) > MEMSIZE){
+                    setADR();
+                    error("Error grabbing data for jmp", pc);
+                }
+
                 printf("%x %x %x %x %x\t", p[pc]&0xff, p[pc+1]&0xff, 
                     p[pc+2]&0xff, p[pc+3]&0xff, p[pc+4]&0xff);                    
                 int dest = getVal(p[pc+1], p[pc+2], p[pc+3], p[pc+4]);
-                /*
+                
+                /* l=8, jmps
                 jmp Dest          70 Dest[4]
                 jle Dest          71 Dest[4]
                 jl Dest           72 Dest[4]
@@ -298,10 +357,15 @@ int decode()
                 /*     call  80 Dest[4] */
                 if ((p[pc]&0x0f) == 0x0)
                 {
-                    printf("%x %x %x %x %x\t", p[pc]&0xff, p[pc+1]&0xff, 
-                        p[pc+2]&0xff, p[pc+3]&0xff, p[pc+4]&0xff);                    
-                    int dest = getVal(p[pc+1], p[pc+2], p[pc+3], p[pc+4]);
-                    call(dest);                
+                    if ((pc+4) > MEMSIZE){
+                        setADR();
+                        error("Error grabbing data for call", pc);
+                    } else {
+                        printf("%x %x %x %x %x\t", p[pc]&0xff, p[pc+1]&0xff, 
+                            p[pc+2]&0xff, p[pc+3]&0xff, p[pc+4]&0xff);                    
+                        int dest = getVal(p[pc+1], p[pc+2], p[pc+3], p[pc+4]);
+                        call(dest);
+                    }                
                 } else 
                 {
                     setINS();
@@ -330,8 +394,13 @@ int decode()
                 /* pushl rA          A0 rAF */
                 if ((p[pc]&0x0f) == 0x0)
                 {
-                    printf("%x %x \t\t", p[pc]&0xff, p[pc+1]&0xff);
-                    pushl(p[pc+1]&0xf0);
+                    if ((pc+1) > MEMSIZE){
+                        setADR();
+                        error("Error grabbing pc for pushl", pc);
+                    } else {
+                        printf("%x %x \t\t", p[pc]&0xff, p[pc+1]&0xff);
+                        pushl(p[pc+1]&0xf0);
+                    }
                 } else 
                 {   
                     setINS();
@@ -345,8 +414,13 @@ int decode()
                 /* popl rA           B0 rAF */
                 if ((p[pc]&0x0f) == 0x0)
                 {
-                    printf("%x %x \t\t", p[pc]&0xff, p[pc+1]&0xff);
-                    popl(p[pc+1]&0xf0);
+                    if ((pc+1) > MEMSIZE){
+                        setADR();
+                        error("Error grabbing pc for popl", pc);
+                    } else {
+                        printf("%x %x \t\t", p[pc]&0xff, p[pc+1]&0xff);
+                        popl(p[pc+1]&0xf0);
+                    }
                 } else
                 {
                     setINS();
@@ -361,59 +435,11 @@ int decode()
             }
         }
     }
+
     printRegisters();
     return 0;
-}
 
-
-
-/* Sample program (in the root directory as prog.o)
-0x00:
-    30f400010000 -> 30 f4 00 01 00 00
-    30f500010000 -> 30 f5 00 01 00 00
-    8024000000   -> 80 24 00 00 00 00
-    00           -> 00
-
-0x014:
-    0d000000     -> 0d 00 00 00
-    c0000000     -> c0 00 00 00 
-    000b0000     -> 00 0b 00 00
-    00a00000     -> 00 a0 00 00
-
-0x024:
-    a05f         -> a0 5f
-    2045         -> 20 45
-    30f004000000 -> 30 f0 04 00 00 00
-    a00f         -> a0 0f
-    30f214000000 -> 30 f2 14 00 00 00
-    a02f         -> a0 2f
-    8042000000   -> 80 42 00 00 00
-    2054         -> 20 54
-    b05f         -> b0 5f
-    90           -> 90
-
-0x42:
-    a05f         -> a0 5f
-    2045         -> 20 45
-    501508000000 -> 50 15 08 00 00 00
-    50250c000000 -> 50 25 0c 00 00 00
-    6300         -> 63 00
-    6222         -> 62 22
-    7378000000   -> 73 78 00 00 00
-    506100000000 -> 50 61 00 00 00 00 
-    6060         -> 60 60 
-    30f304000000 -> 30 f3 04 00 00 00 
-    6031         -> 60 31
-    30f3ffffffff -> 30 f3 ff ff ff ff
-    6032         -> 60 32
-    745b000000   -> 74 5b 00 00 00 
-    2054         -> 20 54
-    b05f         -> b0 5f
-    90           -> 90
-
-0x100: #stack starts here and grows to lower addresses)
-*/
-
+}//end of decode()
 
 /*
     x | ZF | SF | OF |  1 | 1 | 1 | 1
@@ -437,8 +463,6 @@ void setZF()
 void clearZF()
 {
     codes = codes & 0xBF; /* clears 10111111 flag BF */
-    // if set, clear
-    // if clear, clear
 }
 
 int getZF()
@@ -454,7 +478,6 @@ void clearFlags()
     clearZF();
     clearOF();
 }
-
 
 /* Sign Flag operations */
 void setSF()
@@ -495,9 +518,6 @@ int getOF()
     return FALSE;
 }
 
-
-
-
 /* Status code operations (last four bits) */
 void setAOK()
 {
@@ -505,7 +525,6 @@ void setAOK()
     codes = codes | 1; /* sets 00000001 */
     printf("(set status = AOK)");
 }
-
 
 void setHLT()
 {
@@ -547,12 +566,10 @@ int getVal(char a, char b, char c, char d)
     int val;
     if (littleEndian)
     {
-//        printf("      getVal: %x %x %x %x \n ",a,b,c,d);
         val = a;
         val = val | b<<8;
         val = val | c<<16;
         val = val | d<<24;
-//        printf(": %x ", val);
     } else /* big endian */
     {
         val = d;
@@ -573,7 +590,6 @@ int getVal(char a, char b, char c, char d)
 */
 int * r1(char a)
 {
-//    printf("r2: %x, r2 & 0x0f: %x", a, (a & 0xf0)); 
     switch (a & 0xf0)
     {
         case 0x00:  return eax;
@@ -601,7 +617,6 @@ int * r1(char a)
 */
 int * r2(char a)
 {
-//    printf("r2: %x, r2 & 0x0f %x", a, (a & 0x0f));
     switch (a & 0x0f)
     {
         case 0x00:  return eax;
@@ -619,12 +634,12 @@ int * r2(char a)
     return eax; /* shouldn't be hit */
 }
 
-
 /*
 *  Prints out the values of the registers */
 void printRegisters()
 {
-    printf("\nEAX:%x  " , *eax & 0xff);
+    printf("\n\nRegisters: ");
+    printf("EAX:%x  " , *eax & 0xff);
     printf("ECX:%x  " , *ecx & 0xff);
     printf("EDX:%x  ", *edx & 0xff);
     printf("EBX:%x  ", *ebx & 0xff);
@@ -633,19 +648,25 @@ void printRegisters()
     printf("ESI:%x  ", *esi & 0xff);
     printf("EDI:%x  ", *edi & 0xff);
     printf("PC:%x \n", pc & 0xff);
+
+    printf("Flags: ");
+    printf("ZF:%x ", getZF());
+    printf("SF:%x ", getSF());
+    printf("OF:%x \n", getOF());
+
 }
 
 /* Generates an error then exits the program 
 */ 
 void error(char * words, int pc)
 {
-    printf(words);
+    printf("%s",words);
+    //printing the memory at to show where the invalid instruction was taken
+    printMemory(pc);
     exit(1);
 }
 
 /* Assembly instructions */
-
-
 
 /**     
 *    halt              00 */
@@ -655,11 +676,10 @@ void halt()
     printRegisters();
     setHLT();
     pc+=1;
-    //printMemory(pc);
+    //printing out all of the memory
+    printMemory(0);
     exit(0);
 }
-
-
 
 /**  nop               10  */
 void nop()
@@ -667,7 +687,6 @@ void nop()
     printf("nop");
     pc+=1;
 }
-
 
 /**  rrmovl rA, rb     20 rArB   */
 void rrmovl(char reg)
@@ -679,21 +698,20 @@ void rrmovl(char reg)
     pc+=2;
 }
 
-
 /**     cmovle rA, rb     21 rArB  */
 void cmovle(char reg)
 {
     int * src = r1(reg);
     int * dst = r2(reg);
-    if (getZF() || getSF() != getOF())
+    if ((getZF() == 1) || getSF() != getOF())
     {
         *dst = *src;
         printf("cmovle %x, %x (moved)", *src, *dst);
+        clearFlags();
     } else 
         printf("cmovle %x, %x (not moved)", *src, *dst);
     pc+=2;
 }
-
 
 /**      cmovl rA, rb      22 rArB   */
 void cmovl(char reg)
@@ -704,12 +722,11 @@ void cmovl(char reg)
     {
         *dst = *src;
         printf("cmovl %x, %x (moved)", *src, *dst);
+        clearFlags();
     } else
         printf("cmovl %x, %x (not moved)", *src, *dst);
     pc+=2;
 }
-
-
 
 /**     cmove rA, rB      23 rArB  */
 void cmove(char reg)
@@ -719,66 +736,99 @@ void cmove(char reg)
     if (getZF() == 1)
     {
         *dst = *src;   
-        printf("cmove %x, %x (moved)", *src, *dst);    
+        printf("cmove %x, %x (moved)", *src, *dst);
+        clearFlags();    
     } else
         printf("cmove %x, %x (not moved)", *src, *dst);    
     pc+=2;
 }
 
+/*
+    Executes move if not equal to by checking the 
+    condition codes. If true, the src will be put in dst 
+    If not, the pc will be moved past the instruction
+    and continue sequentially in the memory. 
 
-
+    @param char: the value containing the src and dst
+*/
 /**     cmovne rA, rB     24 rArB  */
 void cmovne(char reg)
 {
     /* TODO 3: Implement the cmovne instruction */
+    
+    //grabbing src and dst registers
     int * src = r1(reg);
     int * dst = r2(reg);
 
+    //checking if the operation should happen
     if(getZF() == 0){
         *dst = *src;
         printf("cmovne %x, %x (moved)", *src, *dst);
+        clearFlags();
     } else {
         printf("cmovne %x, %x (not moved)", *src, *dst);
     }
+    //moving the pc    
     pc+=2;
 }
 
+/*
+    Executes move if greater than or equal to by checking the 
+    condition codes. If true, the src will be put in dst 
+    If not, the pc will be moved past the instruction
+    and continue sequentially in the memory. 
 
+    @param char: the value containing the src and dst
+*/
 /**     cmovge rA, rB     25 rArB  */
 void cmovge(char reg)
 {
     /* TODO 4: Implement the cmovge instruction */
+
+    //grabbing src and dst registers
     int * src = r1(reg);
     int * dst = r2(reg);
 
+    //checking if the operation should happen
     if(getSF() == getOF()){
         *dst = *src;
         printf("cmovge %x, %x (moved)", *src, *dst);
+        clearFlags();
     } else { 
         printf("cmovge %x, %x (not moved)", *src, *dst);
     }
+    //moving the pc
     pc+=2;
 }
 
+/*
+    Executes move if greater than by checking the 
+    condition codes. If true, the src will be put in dst 
+    If not, the pc will be moved past the instruction
+    and continue sequentially in the memory. 
 
+    @param char: the value containing the src and dst
+*/
 /*     cmovg rA, rB      26 rArB   */
 void cmovg(char reg)
 {
     /* TODO 5: Implement the cmovg instruction */
+
+    //grabbing src and dst registers
     int * src = r1(reg);
     int * dst = r2(reg);
 
+    //checking if the operation should happen
     if((getSF() == getOF()) && (getZF() == 0)){
         *dst = *src;
         printf("cmovg %x, %x (moved)", *src, *dst);
+        clearFlags();
     } else { 
         printf("cmovg %x, %x (not moved)", *src, *dst);
     }
+    //moving the pc
     pc+=2;
 }
-
-
-
 
 /**     irmovl V, rb      30 FrB Va Vb Vc Vd  */
 void irmovl(int val, char reg)
@@ -789,8 +839,15 @@ void irmovl(int val, char reg)
     pc+=6;
 }
 
+/*
+    Executes a register->memory move. It grabs the
+    value to be put in the register from the memory
+    and sticks it there.
 
+    @param char: the register containing src and dst
+    @param int: the offset of the register value
 
+*/
 /**     rmmovl rA, D(rB)     40 rArB Da Db Dc Dd  */
 void rmmovl(char reg, int offset)
 {
@@ -801,50 +858,86 @@ void rmmovl(char reg, int offset)
     pc+=6;
 }
 
+/*
+    Executes a memory->register move. It grabs the
+    value to be put in the register from the memory
+    and sticks it there.
 
+    @param char: the register containing src and dst
+    @param int: the offset of the register value
 
-
+*/
 /**     mrmovl D(rB), rA      50 rArB Da Db Dc Dd  */
 void mrmovl(char reg, int offset)
 {
     /* TODO 6: Implement the mrmovl instruction */
     
+    //grabbing the source and destination registers
     int * rA = r1(reg);
     int * rB = r2(reg);
+
+    //performing the operation 
     *rA = p[*rB + offset];
-    printf("mrmovl D(rB), %x", *rA);
+
+    //printing the results and moving the pc
+    printf("mrmovl D(rB), %x", *rA); 
     pc+=6;
 }
 
-/** Sets flags based on the last result */
+/** 
+    This function serves to set the conditional flags
+    (OF - overflow, SF - sign flag, or ZF - zero flag)
+    based off of the values of src(a) and dst(b) and 
+    the result of the operation. 
+
+    @param a: the src value
+    @param b: the dst value
+    @param result: the value of the operation
+    @param isAdd: integer flag indicating addition or
+                    subtraction 
+*/
 void setFlags(int a, int b, int result, int isAdd)
 {
     /* TODO 7: Implement the setFlags function */
+    
+    //clearing the flags before setting them based off the conditions
     clearFlags();
 
     //isAdd to indicate addition or subtraction
     if(isAdd == 1){ //if it's addition
+        //(positive) + (positive) = (negative)
         if((a > 0) && (b > 0) && (result < 0)){
             setOF();
+        //(negative) + (negative) = (positive or 0)
         } else if ((a < 0) && (b < 0) && (result >= 0)) {
             setOF();
         }
     } else if(isAdd == 2){ //if it's subtraction
+        //(negative) - (positive) = (positive) 
         if((a > 0) && (b < 0) && (result > 0)) { 
             setOF();
+        //(positive or 0) - (negative) = (negative)
         } else if((a < 0) && (b >= 0) && (result < 0)) {
             setOF();
         }
     } 
 
+    //setting the zero or sign flag if applicable
     if(result == 0){
         setZF();
     } else if(result < 0){
         setSF();
     }
-}
 
+}//end of setFlags()
 
+/*
+    Executes an addition operation on the src and dst registers.
+    As a result of this operation, the sign, zero, or overflow 
+    flag might be set, depending on the result.
+
+    @param char : the register containing both the src and dst
+*/
 /**     addl rA, rB          60 rArB  */
 void addl(char reg)
 {
@@ -857,52 +950,91 @@ void addl(char reg)
     pc+=2;
 }
 
+/*
+    Executes a subtraction operation on the src and dst registers.
+    As a result of this operation, the sign, zero, or overflow 
+    flag might be set, depending on the result.
 
+    @param char : the register containing both the src and dst
+*/
 /**      subl rA, rB        61 rArB  */
 void subl(char reg)
 {
     /* TODO 8: Implement the subl instruction */
 
+    //grabbing the src and dst registers
     int * src = r1(reg);
     int * dst = r2(reg);
+    
+    //storing the original value of the dst reg
     int tmp = *dst;
+
+    //preforming the operation
     *dst = *dst - *src;
+    
+    //printing the results, setting flags, and moving pc
     printf("subl rA, rB: (%x)", *dst);
     setFlags(*src, tmp, *dst, 2);
     pc+=2;
 }
 
+/*
+    Executes an and operation on the src and dst registers.
+    It utilizes the '&'' c operation. As a result of this 
+    operation, the sign, zero, or overflow flag might be set,
+    depending on the result.
 
+    @param char : the register containing both the src and dst
+*/
 /**     andl rA, rB       62 rArB  */
 void andl(char reg)
 {
     /* TODO 9: Implement the andl instruction */
 
+    //grabbing the src and dst registers
     int * src = r1(reg);
     int * dst = r2(reg);
+
+    //storing the orginal value of the dst reg
     int tmp = *dst;
-    *dst = *src & *dst;
+
+    //peforming the operation 
+    *dst = *dst & *src;
+
+    //printing the results, setting flags, and moving pc
     printf("andl rA, rB: (%x)", *dst);
     setFlags(*src, tmp, *dst, 0);
-
     pc+=2;
 }
 
+/*
+    Executes an exclusive or on the src and dst registers.
+    It utilizes the '^'' c operation. As a result of this 
+    operation, the sign or overflow flag might be set,
+    depending on the result.
 
+    @param char : the register containing both the src and dst
+*/
 /**     xorl rA, rB       63 rArB  */
 void xorl(char reg)
 {
     /* TODO 10: Implement the xorl instruction */
 
+    //grabbing the src and dst 
     int * src = r1(reg);
     int * dst = r2(reg);
+
+    //storing the original value of the dst reg
     int tmp = *dst;
-    *dst = *src ^ *dst;
+
+    //performing the operation
+    *dst = *dst ^ *src;
+
+    //printing the results, setting flags, and moving pc
     printf("xorl rA, rB: (%x)", *dst);
     setFlags(*src, tmp, *dst, 0);
     pc+=2;
 }
-
 
 /**     jmp Dest          70 Da Db Dc Dd  */
 void jmp(int dest)
@@ -912,38 +1044,61 @@ void jmp(int dest)
     printf(" (pc=%x)", dest);
 }
 
+/*
+    Executes jump if less than or equal to by checking the 
+    condition codes. If true, the pc will be moved to the 
+    destination. If not, the pc will be moved past the 
+    destination and sequentially in the memory. 
 
-
+    @param dest: the destination to go to if the condition
+                    is true
+*/
 /**     jle Dest          71 Da Db Dc Dd  */
 void jle(int dest)
 {
     /* TODO 11: Implement the jle instruction */ 
+    
     printf("jle %x", dest);
+    
+    //checking if the jump can execute
     if((getZF() == 1) || (getSF() != getOF())){
         pc = dest;
         printf(" (pc=%x)", dest);
+        clearFlags();
     } else {
         printf(" (not taken)");
+        //moving program counter 5 to skip the destination
         pc+=5;
     }
 }
 
+/*
+    Executes jump if less than by checking the condition
+    codes. If true, the pc will be moved to the destination.
+    If not, the pc will be moved past the destination and 
+    sequentially in the memory. 
 
+    @param dest: the destination to go to if the condition
+                    is true
+*/
 /**     jl Dest           72 Da Db Dc Dd  */
 void jl(int dest)
 {
     /* TODO 12: Implement the jl instruction */
     
     printf("jl %x", dest);
+    
+    //checking if the jmp should be taken
     if(getSF() != getOF()){
         pc = dest;
         printf(" (pc=%x)", dest);
+        clearFlags();
     } else {
         printf(" (not taken)");
+        //moving program counter 5 to skip the dest
         pc+=5;
     }
 }
-
 
 /**     je Dest           73 Da Db Dc Dd  */
 void je(int dest)
@@ -953,13 +1108,13 @@ void je(int dest)
     {
         pc = dest;
         printf(" (pc=%x)", dest);
+        clearFlags();
     } else
     {
         printf(" (not taken)");
         pc+=5;
     }
 }
-
 
 /**     jne Dest          74 Da Db Dc Dd  */
 void jne(int dest)
@@ -969,6 +1124,7 @@ void jne(int dest)
     {
         pc = dest;
         printf(" (pc=%x)", pc&0xff);
+        clearFlags();
     } else
     {
         printf(" (not taken)");
@@ -976,41 +1132,60 @@ void jne(int dest)
     }
 }
 
+/*
+    Executes jump if greater than or equal to by
+    checking the condition flags. If true, the pc 
+    will be moved to the new destination. If not
+    the pc will be moved sequentially in the 
+    memory.
 
-
+    @param int: the destination to move the pc to
+*/
 /**     jge Dest          75 Da Db Dc Dd  */
 void jge(int dest)
 {
     /* TODO 13: Implement the jge instruction */
     
     printf("jge %x", dest);
+
+    //checking if the jmp should be taken
     if(getSF() == getOF()){
         pc = dest;
         printf(" (pc=%x)", pc&0xff);
+        clearFlags();
     } else {
         printf(" (not taken)");
+        //moving program counter 5 to skip the dest
         pc+=5;
     }
 }
 
+/*
+    Executes the jump if greater than by checking the
+    condition flags. If the condition is true, the 
+    pc will be moved to the corresponding destination.
+    If not, the pc will be moved sequentially in the 
+    memory.
 
-
+    @param int: the destination to move the pc to 
+*/
 /**     jg Dest           76 Da Db Dc Dd  */
 void jg(int dest)
 {
     /* TODO jg: Implement the jg instruction */
     
     printf("jf %x", dest);
+    //checking if the jmp should be taken
     if((getSF() == getOF()) && (getZF() == 0)){
         pc = dest;
         printf(" (pc=%x", pc&0xff);
+        clearFlags();
     } else {
         printf(" (not taken)");
+        //moving program counter 5 to skip the dest
         pc+=5;
     }
 }
-
-
 
 /* TODO 15: Verify all the other instructions work correctly */
 
@@ -1023,8 +1198,6 @@ void call(int addr)
     pc = addr;
 }
 
-
-
 /*     ret               90   */
 void ret()
 {
@@ -1033,7 +1206,6 @@ void ret()
     *esp = *esp + 0x4; /* move esp back down */
     pc += 5;  /* for how many bytes it took to call */
 }
-
 
 /*     pushl rA          A0 rAF   */
 void pushl(char reg)
@@ -1045,7 +1217,6 @@ void pushl(char reg)
     pc+=2;
 }
 
-
 /*      popl rA           B0 rAF   */
 void popl(char reg)
 {
@@ -1056,74 +1227,19 @@ void popl(char reg)
     pc+=2;
 }
 
-
-
 /* TODO: 16: Make sure printMemory prints the ending memory on the screen properly */
 int printMemory(int start)
 {
-    int words_on_screen = 1000;
-
-    for (int i=start; i<start+words_on_screen; i++)
+    printf("\nMemory:");
+    //looping through the starting position to the end of the program
+    for (int i=start; i<programLength; i++)
     {
-        if (i==(0%4))
-            printf("");
-        printf("%x\t", p[i]);
+        //ensuring that the memory prints out in a nice block
+        if (i%14 == 0)
+            printf("\n");
+        printf("%x  ", p[i] & 0xFF);
     }
+
+    printf("\n");
     return 0;
 }
-
-
-
-
-
-/* Sample program (in directory as prog.o)
-0x00:
-    30f400010000 -> 30 f4 00 01 00 00
-    30f500010000 -> 30 f5 00 01 00 00
-    8024000000   -> 80 24 00 00 00 00
-    00           -> 00
-
-0x014:
-    0d000000     -> 0d 00 00 00
-    c0000000     -> c0 00 00 00 
-    000b0000     -> 00 0b 00 00
-    00a00000     -> 00 a0 00 00
-
-0x024:
-    a05f         -> a0 5f
-    2045         -> 20 45
-    30f004000000 -> 30 f0 04 00 00 00
-    a00f         -> a0 0f
-    30f214000000 -> 30 f2 14 00 00 00
-    a02f         -> a0 2f
-    8042000000   -> 80 42 00 00 00
-    2054         -> 20 54
-    b05f         -> b0 5f
-    90           -> 90
-
-0x42:
-    a05f         -> a0 5f
-    2045         -> 20 45
-    501508000000 -> 50 15 08 00 00 00
-    50250c000000 -> 50 25 0c 00 00 00
-    6300         -> 63 00
-    6222         -> 62 22
-    7378000000   -> 73 78 00 00 00
-    506100000000 -> 50 61 00 00 00 00 
-    6060         -> 60 60 
-    30f304000000 -> 30 f3 04 00 00 00 
-    6031         -> 60 31
-    30f3ffffffff -> 30 f3 ff ff ff ff
-    6032         -> 60 32
-    745b000000   -> 74 5b 00 00 00 
-    2054         -> 20 54
-    b05f         -> b0 5f
-    90           -> 90
-
-
-*/
-
-
-
-
-

@@ -2,6 +2,11 @@
 	Project #4 
 	CEG 4350-01
 	Abigail Schaar
+
+	This is the header file for the y86 emulator. It has all
+	of the function declarations as well as the file imports
+	to assist with the proper operation and execution of the 
+	functions implemented in the .c file. 
 */
 
 #include<stdio.h>
@@ -62,9 +67,9 @@ void popl(char);
 
 int printMemory(int);
 int parse(FILE*);
-char toHex(char);
 int decode();
 void clearFlags();
+void setFlags(int,int,int,int);
 
 
 
